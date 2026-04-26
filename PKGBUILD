@@ -2,9 +2,9 @@
 # Akiflow Desktop for Linux (unofficial)
 
 pkgname=akiflow-bin
-pkgver=2.70.7
+pkgver=2.72.5
 pkgrel=1
-_buildhash=6676a46d
+_buildhash=7536ef84
 pkgdesc="Akiflow - Time blocking and task management (unofficial Linux build)"
 arch=('x86_64')
 url="https://akiflow.com"
@@ -12,7 +12,7 @@ license=('custom')
 depends=('electron')
 makedepends=('p7zip' 'imagemagick' 'icoutils' 'python')
 source=("Akiflow-${pkgver}.exe::https://download.akiflow.com/builds/Akiflow-${pkgver}-${_buildhash}-x64.exe")
-sha512sums=('SKIP')
+sha512sums=('e4aeadcf7ec8a2a9c46dda84fe59d1cf38898808f891d28f98c73c8e1514d61051f4fa19215774c56c5c297befddefce4f8e55a6ec9bc92ed5d6a8b59c5a155d')
 
 prepare() {
     cd "${srcdir}"
