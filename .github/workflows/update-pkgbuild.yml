@@ -10,14 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
 
     steps:
+      - name: Install dependencies
+        working-directory: /
+        run: pacman -Syu --noconfirm --needed git python python-yaml curl openssh sudo makepkg
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed git python python-yaml curl openssh sudo
+      - name: Configure git
+        run: git config --global --add safe.directory '*'
 
       - name: Check for new version
         id: check
@@ -92,8 +99,6 @@ jobs:
       - name: Commit and push to GitHub
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cd "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
@@ -118,5 +123,5 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
-          git remote add aur ssh://aur@aur.archlinux.org/akiflow-desktop.git
+          git remote add aur ssh://aur@aur.archlinux.org/akiflow-bin.git
           git push aur HEAD:master

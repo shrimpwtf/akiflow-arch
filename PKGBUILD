@@ -1,7 +1,7 @@
 # Maintainer: shrimp
 # Akiflow Desktop for Linux (unofficial)
 
-pkgname=akiflow-desktop
+pkgname=akiflow-bin
 pkgver=2.70.7
 pkgrel=1
 _buildhash=6676a46d

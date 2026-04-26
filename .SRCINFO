@@ -1,4 +1,4 @@
-pkgbase = akiflow-desktop
+pkgbase = akiflow-bin
 	pkgdesc = Akiflow - Time blocking and task management (unofficial Linux build)
 	pkgver = 2.70.7
 	pkgrel = 1
@@ -13,4 +13,4 @@ pkgbase = akiflow-desktop
 	source = Akiflow-2.70.7.exe::https://download.akiflow.com/builds/Akiflow-2.70.7-6676a46d-x64.exe
 	sha512sums = SKIP
 
-pkgname = akiflow-desktop
+pkgname = akiflow-bin
