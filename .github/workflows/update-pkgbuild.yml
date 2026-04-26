@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Install dependencies
         working-directory: /
-        run: pacman -Syu --noconfirm --needed git python python-yaml curl openssh sudo makepkg
+        run: pacman -Syu --noconfirm --needed git python python-yaml curl openssh sudo
 
       - uses: actions/checkout@v4
         with:
