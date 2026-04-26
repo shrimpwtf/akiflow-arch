@@ -17,9 +17,9 @@ import hashlib
 import shutil
 import sys
 import os
+import re
 from pathlib import Path
 
-# Check CWD first (for PKGBUILD build()), then fallback to relative to script
 if (Path.cwd() / "app.asar").exists():
     ASAR_PATH = Path.cwd() / "app.asar"
 else:
@@ -28,31 +28,39 @@ BACKUP_PATH = ASAR_PATH.with_suffix(".asar.bak")
 
 
 # ── Patches for publish/main.js ──────────────────────────────────────────
+#
+# Patterns use regex with capture groups so minified variable names (which
+# change each release) don't cause patch failures.
+
+def _tray_writer_repl(m):
+    e_var, t_var, x_var = m.group(1), m.group(2), m.group(3)
+    return (
+        f'ipcMain.handle("tray.setTitle",(({e_var},{t_var})=>{{{x_var}.title={t_var},'
+        f'{x_var}.updateTitleAndIcon({x_var}.title);'
+        'try{const _d=require("path").join(require("os").homedir(),".cache","akiflow");'
+        'require("fs").mkdirSync(_d,{recursive:!0});'
+        f'require("fs").writeFileSync(require("path").join(_d,"tray-status.json"),'
+        f'JSON.stringify({{title:{t_var}||"",hasEvent:!!{t_var},timestamp:Date.now()}}))'
+        '}catch(_e){}}))'
+    )
+
 
 MAIN_PATCHES = [
     {
         "name": "Tray status JSON writer",
-        "original": (
-            's.ipcMain.handle("tray.setTitle",((e,t)=>'
-            "{ee.title=t,ee.updateTitleAndIcon(ee.title)}))"
-        ),
-        "replacement": (
-            's.ipcMain.handle("tray.setTitle",((e,t)=>'
-            "{ee.title=t,ee.updateTitleAndIcon(ee.title);"
-            'try{const _d=require("path").join(require("os").homedir(),".cache","akiflow");'
-            'require("fs").mkdirSync(_d,{recursive:!0});'
-            'require("fs").writeFileSync(require("path").join(_d,"tray-status.json"),'
-            "JSON.stringify({title:t||\"\",hasEvent:!!t,timestamp:Date.now()}))"
-            "}catch(_e){}}))"
-        ),
+        "pattern": r'ipcMain\.handle\("tray\.setTitle",\(\((\w+),(\w+)\)=>\{(\w+)\.title=\2,\3\.updateTitleAndIcon\(\3\.title\)\}\)\)',
+        "replacement": _tray_writer_repl,
+        "check_applied": "tray-status.json",
         "required": True,
     },
     {
         "name": "Tray window toggle watcher",
+        # Uses process.platform instead of a minified IS_LINUX variable.
+        # Uses require('electron').screen instead of a minified electron var.
         "original": 'globalThis.tray.setToolTip("Akiflow")',
         "replacement": (
             'globalThis.tray.setToolTip("Akiflow"),'
-            "(()=>{if(H.IS_LINUX){const _fs=require(\"fs\"),_tp=require(\"path\").join(require(\"os\").homedir(),"
+            "(()=>{if(process.platform===\"linux\"){const _fs=require(\"fs\"),_tp=require(\"path\").join(require(\"os\").homedir(),"
             '".cache","akiflow","toggle-tray");'
             "try{_fs.mkdirSync(require(\"path\").dirname(_tp),{recursive:!0})}catch(_e){}"
             "_fs.watchFile(_tp,{interval:500},()=>{"
@@ -61,7 +69,7 @@ MAIN_PATCHES = [
             "let _pos;try{_pos=JSON.parse(_fs.readFileSync(_tp,\"utf8\"))}catch(_e){}"
             "if(_pos&&_pos.x!=null&&_pos.y!=null){"
             "const _b=globalThis.trayWindow.getBounds(),"
-            "_d=s.screen.getDisplayNearestPoint({x:_pos.x,y:_pos.y}),"
+            "_d=require(\"electron\").screen.getDisplayNearestPoint({x:_pos.x,y:_pos.y}),"
             "_nx=Math.max(_d.workArea.x,Math.min(_pos.x-Math.floor(_b.width/2),_d.workArea.x+_d.workArea.width-_b.width)),"
             "_ny=_pos.y-_b.height-8;"
             "globalThis.trayWindow.setBounds({x:_nx,y:_ny<_d.workArea.y?_pos.y+8:_ny,width:_b.width,height:_b.height})}"
@@ -72,25 +80,30 @@ MAIN_PATCHES = [
     },
 ]
 
+
 # ── Patches for publish/renderer/main.js ─────────────────────────────────
 
 RENDERER_PATCHES = [
     {
         "name": "Remove IS_MAC gate on tray title init",
-        "original": "O.IS_MAC&&!O.IS_WEB&&(Ck.store.sub(v0.atoms.trayTile,v0.setTitle),setTimeout(v0.setTitle,1e3))",
-        "replacement": "(O.IS_MAC||O.IS_LINUX)&&!O.IS_WEB&&(Ck.store.sub(v0.atoms.trayTile,v0.setTitle),setTimeout(v0.setTitle,1e3))",
+        # Matches: X.IS_MAC&&!X.IS_WEB&&(Y.store.sub(Z.atoms.trayTile,...))
+        "pattern": r'(\w+)\.IS_MAC&&!\1\.IS_WEB&&(\(\w+\.store\.sub\(\w+\.atoms\.trayTile,\w+\.setTitle\),setTimeout\(\w+\.setTitle,1e3\)\))',
+        "replacement": r'(\1.IS_MAC||\1.IS_LINUX)&&!\1.IS_WEB&&\2',
+        "check_applied": "IS_LINUX)&&!",
         "required": True,
     },
     {
         "name": "Remove IS_MAC gate on trayTile atom",
-        "original": "trayTile=gk((e=>{if(!O.IS_MAC||O.IS_WEB)return null",
-        "replacement": "trayTile=gk((e=>{if(!(O.IS_MAC||O.IS_LINUX)||O.IS_WEB)return null",
+        # Matches: trayTile=FUNC((e=>{if(!X.IS_MAC||X.IS_WEB)return null
+        "pattern": r'(trayTile=\w+\(\(e=>\{if\()!(\w+)\.IS_MAC\|\|\2\.IS_WEB(\)return null)',
+        "replacement": r'\1!(\2.IS_MAC||\2.IS_LINUX)||\2.IS_WEB\3',
+        "check_applied": "IS_LINUX)||",
         "required": True,
     },
     {
         "name": "Increase tray title truncation from 15 to 30 chars",
-        "original": "t=e.length>15?e.slice(0,15).join(\"\")+\"...\":e.join(\"\")",
-        "replacement": "t=e.length>30?e.slice(0,30).join(\"\")+\"...\":e.join(\"\")",
+        "original": 't=e.length>15?e.slice(0,15).join("")+"...":e.join("")',
+        "replacement": 't=e.length>30?e.slice(0,30).join("")+"...":e.join("")',
         "required": False,
     },
 ]
@@ -168,28 +181,55 @@ def find_entry(packed_files, path_tuple):
 
 
 def apply_patches(text, patches, file_label):
-    """Apply a list of patches to text. Returns (patched_text, count_applied)."""
     patched = text
     applied = 0
     for i, p in enumerate(patches, 1):
         name = p["name"]
-        orig = p["original"]
-        repl = p["replacement"]
         required = p["required"]
+        is_regex = "pattern" in p
 
-        # Check replacement first (it may contain the original as substring)
-        if repl in patched:
-            print(f"  [{file_label} patch {i}] {name}: already applied")
-        elif orig in patched:
-            patched = patched.replace(orig, repl, 1)
-            applied += 1
-            print(f"  [{file_label} patch {i}] {name}: APPLIED")
-        elif required:
-            print(f"ERROR: Could not find target for '{name}' in {file_label}")
-            print(f"  Expected: {orig[:80]}...")
-            sys.exit(1)
+        if is_regex:
+            pattern = p["pattern"]
+            replacement = p["replacement"]
+            check = p.get("check_applied", "")
+
+            if check and check in patched:
+                print(f"  [{file_label} patch {i}] {name}: already applied")
+                continue
+
+            m = re.search(pattern, patched)
+            if m is None:
+                if required:
+                    print(f"ERROR: Could not find target for '{name}' in {file_label}")
+                    print(f"  Pattern: {pattern[:100]}")
+                    sys.exit(1)
+                else:
+                    print(f"  [{file_label} patch {i}] {name}: target not found (optional, skipping)")
+                    continue
+
+            new_text = re.sub(pattern, replacement, patched, count=1)
+            if new_text == patched:
+                print(f"  [{file_label} patch {i}] {name}: no change after substitution (unexpected)")
+            else:
+                patched = new_text
+                applied += 1
+                print(f"  [{file_label} patch {i}] {name}: APPLIED")
         else:
-            print(f"  [{file_label} patch {i}] {name}: target not found (optional, skipping)")
+            orig = p["original"]
+            repl = p["replacement"]
+            if repl in patched:
+                print(f"  [{file_label} patch {i}] {name}: already applied")
+            elif orig in patched:
+                patched = patched.replace(orig, repl, 1)
+                applied += 1
+                print(f"  [{file_label} patch {i}] {name}: APPLIED")
+            elif required:
+                print(f"ERROR: Could not find target for '{name}' in {file_label}")
+                print(f"  Expected: {orig[:80]}...")
+                sys.exit(1)
+            else:
+                print(f"  [{file_label} patch {i}] {name}: target not found (optional, skipping)")
+
     return patched, applied
 
 
@@ -206,7 +246,6 @@ def patch():
         packed_files = collect_packed_files(header)
         print(f"  Found {len(packed_files)} packed files")
 
-        # Read both files we need to patch
         main_path = ("publish", "main.js")
         renderer_path = ("publish", "renderer", "main.js")
 
@@ -221,7 +260,6 @@ def patch():
         main_content = read_file_from_asar(f, orig_data_offset, main_entry)
         renderer_content = read_file_from_asar(f, orig_data_offset, renderer_entry)
 
-    # Apply patches
     main_text = main_content.decode("utf-8")
     renderer_text = renderer_content.decode("utf-8")
 
@@ -236,7 +274,6 @@ def patch():
     main_bytes = main_patched.encode("utf-8")
     renderer_bytes = renderer_patched.encode("utf-8")
 
-    # Map of path -> new content for patched files
     patched_files = {}
     if main_count > 0:
         patched_files[main_path] = main_bytes
@@ -249,20 +286,16 @@ def patch():
         print(f"\n[DRY RUN] {total_applied} patches would be applied. No files modified.")
         sys.exit(0)
 
-    # ── Rebuild asar ──────────────────────────────────────────────────────
     print("Rebuilding asar ...")
 
-    # Save original offsets before we mutate anything
     orig_map = {}
     for pp, entry in packed_files:
         orig_map[pp] = (orig_data_offset + int(entry["offset"]), entry["size"])
 
-    # Re-read header fresh for mutation
     with open(ASAR_PATH, "rb") as f:
         header, _, _ = read_asar_header(f)
     packed_files = collect_packed_files(header)
 
-    # Assign new offsets
     new_offset = 0
     file_order = []
     for pp, entry in packed_files:
@@ -283,12 +316,10 @@ def patch():
 
     header_bytes, new_data_offset = build_asar(header)
 
-    # Backup
     if not BACKUP_PATH.exists():
         print(f"  Backing up to {BACKUP_PATH}")
         shutil.copy2(ASAR_PATH, BACKUP_PATH)
 
-    # Write new asar
     tmp_path = ASAR_PATH.with_suffix(".asar.tmp")
     with open(ASAR_PATH, "rb") as src, open(tmp_path, "wb") as dst:
         dst.write(header_bytes)
@@ -306,7 +337,6 @@ def patch():
                     dst.write(chunk)
                     remaining -= len(chunk)
 
-    # Verify
     tmp_size = os.path.getsize(tmp_path)
     orig_size = os.path.getsize(ASAR_PATH)
     size_diff = sum(len(v) - orig_map[k][1] for k, v in patched_files.items())
