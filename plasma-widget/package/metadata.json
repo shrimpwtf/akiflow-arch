@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Id": "com.akiflow.panelwidget",
+        "Name": "Akiflow",
+        "Description": "Shows your next upcoming Akiflow event in the panel",
+        "Category": "Utilities",
+        "Icon": "akiflow",
+        "Authors": [
+            {
+                "Name": "Akiflow",
+                "Email": "support@akiflow.com"
+            }
+        ],
+        "Version": "1.0.0",
+        "License": "MIT",
+        "Website": "https://akiflow.com"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
