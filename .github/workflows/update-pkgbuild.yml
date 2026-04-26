@@ -125,5 +125,13 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
-          git remote add aur ssh://aur@aur.archlinux.org/akiflow-bin.git
-          git push aur HEAD:master
+          # AUR requires a flat repo — only PKGBUILD and .SRCINFO
+          TMPDIR=$(mktemp -d)
+          cp PKGBUILD .SRCINFO "$TMPDIR/"
+          cd "$TMPDIR"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to v${{ steps.check.outputs.new_version }}"
+          git push --force ssh://aur@aur.archlinux.org/akiflow-bin.git HEAD:master
