@@ -1,6 +1,6 @@
 pkgbase = akiflow-bin
 	pkgdesc = Akiflow - Time blocking and task management (unofficial Linux build)
-	pkgver = 2.81.8
+	pkgver = 2.83.8
 	pkgrel = 1
 	url = https://akiflow.com
 	arch = x86_64
@@ -10,13 +10,13 @@ pkgbase = akiflow-bin
 	makedepends = icoutils
 	makedepends = python
 	depends = electron
-	source = Akiflow-2.81.8.exe::https://download.akiflow.com/builds/Akiflow-2.81.8-443b090a-x64.exe
+	source = Akiflow-2.83.8.exe::https://download.akiflow.com/builds/Akiflow-2.83.8-9f6f1262-x64.exe
 	source = patch-main.py::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/patch-main.py
 	source = plasma-widget-metadata.json::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/plasma-widget/package/metadata.json
 	source = plasma-widget-main.qml::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/plasma-widget/package/contents/ui/main.qml
 	source = plasma-widget-CompactRepresentation.qml::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/plasma-widget/package/contents/ui/CompactRepresentation.qml
 	source = plasma-widget-FullRepresentation.qml::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/plasma-widget/package/contents/ui/FullRepresentation.qml
 	source = plasma-widget-akiflow.png::https://raw.githubusercontent.com/shrimpwtf/akiflow-arch/main/plasma-widget/package/contents/icons/akiflow.png
-	sha512sums = 30edeca9a04f9aa85339861b41b9b508a52f024e0c0afa4a8ba3421b8dffca313af72bf9e84e31a815f00dfc86e6185298ddea376d203510526ccf7da8d14042
+	sha512sums = f8764b23aa378b0ab4760284f80072e68756a82ae546bfaffc795abf514df59ff2953d04f15f03a3bb00667ebf44ad864bf11214d57445fe332255d65d8314d9
 
 pkgname = akiflow-bin
