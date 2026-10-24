@@ -19,7 +19,8 @@ source=("Akiflow-${pkgver}.exe::https://download.akiflow.com/builds/Akiflow-${pk
         "plasma-widget-CompactRepresentation.qml::${_ghraw}/plasma-widget/package/contents/ui/CompactRepresentation.qml"
         "plasma-widget-FullRepresentation.qml::${_ghraw}/plasma-widget/package/contents/ui/FullRepresentation.qml"
         "plasma-widget-akiflow.png::${_ghraw}/plasma-widget/package/contents/icons/akiflow.png")
-sha512sums=('f8764b23aa378b0ab4760284f80072e68756a82ae546bfaffc795abf514df59ff2953d04f15f03a3bb00667ebf44ad864bf11214d57445fe332255d65d8314d9')
+sha512sums=('f8764b23aa378b0ab4760284f80072e68756a82ae546bfaffc795abf514df59ff2953d04f15f03a3bb00667ebf44ad864bf11214d57445fe332255d65d8314d9'
+            'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
     cd "${srcdir}"
