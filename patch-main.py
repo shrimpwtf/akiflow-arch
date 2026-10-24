@@ -33,22 +33,24 @@ BACKUP_PATH = ASAR_PATH.with_suffix(".asar.bak")
 # change each release) don't cause patch failures.
 
 def _tray_writer_repl(m):
-    e_var, t_var, x_var = m.group(1), m.group(2), m.group(3)
+    ipc, wrap, e_var, t_var, x_var, close = m.groups()
     return (
-        f'ipcMain.handle("tray.setTitle",(({e_var},{t_var})=>{{{x_var}.title={t_var},'
+        f'{ipc}.handle("tray.setTitle",{wrap}({e_var},{t_var})=>{{{x_var}.title={t_var},'
         f'{x_var}.updateTitleAndIcon({x_var}.title);'
         'try{const _d=require("path").join(require("os").homedir(),".cache","akiflow");'
         'require("fs").mkdirSync(_d,{recursive:!0});'
         f'require("fs").writeFileSync(require("path").join(_d,"tray-status.json"),'
         f'JSON.stringify({{title:{t_var}||"",hasEvent:!!{t_var},timestamp:Date.now()}}))'
-        '}catch(_e){}}))'
+        f'}}catch(_e){{}}}}{close})'
     )
 
 
 MAIN_PATCHES = [
     {
         "name": "Tray status JSON writer",
-        "pattern": r'ipcMain\.handle\("tray\.setTitle",\(\((\w+),(\w+)\)=>\{(\w+)\.title=\2,\3\.updateTitleAndIcon\(\3\.title\)\}\)\)',
+        # Handles both `ipcMain.handle("tray.setTitle",((e,t)=>{...}))` (<=2.72)
+        # and `D.ipcMain.handle("tray.setTitle",(e,t)=>{...})` (>=2.83).
+        "pattern": r'((?:\w+\.)?ipcMain)\.handle\("tray\.setTitle",(\(?)\((\w+),(\w+)\)=>\{(\w+)\.title=\4,\5\.updateTitleAndIcon\(\5\.title\)\}(\)?)\)',
         "replacement": _tray_writer_repl,
         "check_applied": "tray-status.json",
         "required": True,
@@ -254,17 +256,21 @@ def patch():
 
         if not main_entry:
             print("ERROR: publish/main.js not found"); sys.exit(1)
-        if not renderer_entry:
-            print("ERROR: publish/renderer/main.js not found"); sys.exit(1)
 
         main_content = read_file_from_asar(f, orig_data_offset, main_entry)
-        renderer_content = read_file_from_asar(f, orig_data_offset, renderer_entry)
+        renderer_content = read_file_from_asar(f, orig_data_offset, renderer_entry) if renderer_entry else None
 
     main_text = main_content.decode("utf-8")
-    renderer_text = renderer_content.decode("utf-8")
-
     main_patched, main_count = apply_patches(main_text, MAIN_PATCHES, "main")
-    renderer_patched, renderer_count = apply_patches(renderer_text, RENDERER_PATCHES, "renderer")
+
+    if renderer_content is None:
+        # Newer releases (>=2.74) load the renderer from a remote URL instead of
+        # bundling it, so there is nothing to patch client-side.
+        print("  publish/renderer/main.js not bundled (remote renderer), skipping renderer patches")
+        renderer_patched, renderer_count = "", 0
+    else:
+        renderer_text = renderer_content.decode("utf-8")
+        renderer_patched, renderer_count = apply_patches(renderer_text, RENDERER_PATCHES, "renderer")
 
     total_applied = main_count + renderer_count
     if total_applied == 0:
@@ -278,7 +284,7 @@ def patch():
     if main_count > 0:
         patched_files[main_path] = main_bytes
         print(f"  main.js: {main_entry['size']} -> {len(main_bytes)} bytes")
-    if renderer_count > 0:
+    if renderer_count > 0 and renderer_entry:
         patched_files[renderer_path] = renderer_bytes
         print(f"  renderer/main.js: {renderer_entry['size']} -> {len(renderer_bytes)} bytes")
 
