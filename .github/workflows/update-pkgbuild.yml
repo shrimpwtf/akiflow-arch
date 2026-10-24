@@ -32,7 +32,7 @@ jobs:
         id: check
         run: |
           python3 << 'PYEOF'
-          import urllib.request, yaml, re, os, base64
+          import urllib.request, json, yaml, re, os, base64
 
           with urllib.request.urlopen('https://download.akiflow.com/builds/latest.yml') as r:
               data = yaml.safe_load(r.read().decode())
@@ -45,14 +45,18 @@ jobs:
           m = re.search(r'Akiflow-[\d.]+-([a-f0-9]+)-x64\.exe', path)
           build_hash = m.group(1) if m else ''
 
-          with open('PKGBUILD') as f:
-              content = f.read()
-
-          m = re.search(r'^pkgver=(.+)$', content, re.MULTILINE)
-          current_version = m.group(1).strip() if m else ''
+          # Compare against what the AUR actually serves, not this repo's PKGBUILD:
+          # if a push to the AUR fails, the repo is already ahead and would
+          # otherwise never be retried.
+          rpc = 'https://aur.archlinux.org/rpc/v5/info?arg[]=akiflow-bin'
+          with urllib.request.urlopen(rpc) as r:
+              aur = json.load(r)
+          if aur.get('type') == 'error':
+              raise SystemExit(f"AUR RPC error: {aur.get('error')}")
+          current_version = aur['results'][0]['Version'].rsplit('-', 1)[0] if aur['results'] else ''
 
           needs_update = new_version != current_version
-          print(f"Current: {current_version}, Latest: {new_version}, Update needed: {needs_update}")
+          print(f"AUR: {current_version or 'none'}, Latest: {new_version}, Update needed: {needs_update}")
 
           out = os.environ['GITHUB_OUTPUT']
           with open(out, 'a') as f:
@@ -104,26 +108,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
-          git commit -m "chore: update to v${{ steps.check.outputs.new_version }}"
-          git push
+          # Already committed on a previous run whose AUR push failed: nothing to commit.
+          if git diff --cached --quiet; then
+            echo "PKGBUILD/.SRCINFO already up to date in the repo"
+          else
+            git commit -m "chore: update to v${{ steps.check.outputs.new_version }}"
+            git push
+          fi
 
       - name: Push to AUR
         if: steps.check.outputs.needs_update == 'true'
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          echo "$AUR_SSH_KEY" > ~/.ssh/aur_key
-          chmod 600 ~/.ssh/aur_key
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-
-          cat >> ~/.ssh/config << 'EOF'
-          Host aur.archlinux.org
-            IdentityFile ~/.ssh/aur_key
-            User aur
-            StrictHostKeyChecking accept-new
-          EOF
-          chmod 600 ~/.ssh/config
+          # Container jobs set HOME=/github/home, but ssh reads /root/.ssh, so a
+          # ~/.ssh/config is silently ignored ("Host key verification failed").
+          # Pass everything explicitly instead of relying on $HOME.
+          KEY="$RUNNER_TEMP/aur_key"
+          printf '%s\n' "$AUR_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/aur_known_hosts -o StrictHostKeyChecking=accept-new"
 
           # AUR requires a flat repo — only PKGBUILD and .SRCINFO
           TMPDIR=$(mktemp -d)
