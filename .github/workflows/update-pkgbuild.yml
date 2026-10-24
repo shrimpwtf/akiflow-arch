@@ -86,7 +86,8 @@ jobs:
           content = re.sub(r'^pkgver=.+$', f'pkgver={new_version}', content, flags=re.MULTILINE)
           content = re.sub(r'^pkgrel=.+$', 'pkgrel=1', content, flags=re.MULTILINE)
           content = re.sub(r'^_buildhash=.+$', f'_buildhash={build_hash}', content, flags=re.MULTILINE)
-          content = re.sub(r"sha512sums=\('.*?'\)", f"sha512sums=('{sha512}')", content, flags=re.DOTALL)
+          # Only the first entry (the installer) is versioned; keep the SKIP entries for the raw GitHub sources.
+          content = re.sub(r"^(sha512sums=\(')[^']*'", lambda m: f"{m.group(1)}{sha512}'", content, flags=re.MULTILINE)
 
           with open('PKGBUILD', 'w') as f:
               f.write(content)
@@ -129,13 +130,18 @@ jobs:
           chmod 600 "$KEY"
           export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/aur_known_hosts -o StrictHostKeyChecking=accept-new"
 
-          # AUR requires a flat repo — only PKGBUILD and .SRCINFO
-          TMPDIR=$(mktemp -d)
-          cp PKGBUILD .SRCINFO "$TMPDIR/"
-          cd "$TMPDIR"
-          git init
+          # The AUR denies non-fast-forward pushes, so commit on top of its history.
+          # It also requires a flat repo: only PKGBUILD and .SRCINFO.
+          AUR_DIR="$RUNNER_TEMP/aur"
+          git clone ssh://aur@aur.archlinux.org/akiflow-bin.git "$AUR_DIR"
+          cp PKGBUILD .SRCINFO "$AUR_DIR/"
+          cd "$AUR_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
-          git commit -m "Update to v${{ steps.check.outputs.new_version }}"
-          git push --force ssh://aur@aur.archlinux.org/akiflow-bin.git HEAD:master
+          if git diff --cached --quiet; then
+            echo "AUR already up to date"
+          else
+            git commit -m "Update to v${{ steps.check.outputs.new_version }}"
+            git push origin HEAD:master
+          fi
