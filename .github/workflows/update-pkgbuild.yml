@@ -53,10 +53,16 @@ jobs:
               aur = json.load(r)
           if aur.get('type') == 'error':
               raise SystemExit(f"AUR RPC error: {aur.get('error')}")
-          current_version = aur['results'][0]['Version'].rsplit('-', 1)[0] if aur['results'] else ''
+          aur_full = aur['results'][0]['Version'] if aur['results'] else ''
+          current_version = aur_full.rsplit('-', 1)[0]
 
-          needs_update = new_version != current_version
-          print(f"AUR: {current_version or 'none'}, Latest: {new_version}, Update needed: {needs_update}")
+          with open('PKGBUILD') as f:
+              content = f.read()
+          repo_ver = re.search(r'^pkgver=(.+)$', content, re.MULTILINE).group(1).strip()
+          repo_rel = re.search(r'^pkgrel=(.+)$', content, re.MULTILINE).group(1).strip()
+
+          needs_update = new_version != current_version or f"{repo_ver}-{repo_rel}" != aur_full
+          print(f"AUR: {aur_full or 'none'}, repo: {repo_ver}-{repo_rel}, Latest: {new_version}, Update needed: {needs_update}")
 
           out = os.environ['GITHUB_OUTPUT']
           with open(out, 'a') as f:
@@ -83,8 +89,10 @@ jobs:
           with open('PKGBUILD') as f:
               content = f.read()
 
+          old_version = re.search(r'^pkgver=(.+)$', content, re.MULTILINE).group(1).strip()
           content = re.sub(r'^pkgver=.+$', f'pkgver={new_version}', content, flags=re.MULTILINE)
-          content = re.sub(r'^pkgrel=.+$', 'pkgrel=1', content, flags=re.MULTILINE)
+          if old_version != new_version:
+              content = re.sub(r'^pkgrel=.+$', 'pkgrel=1', content, flags=re.MULTILINE)
           content = re.sub(r'^_buildhash=.+$', f'_buildhash={build_hash}', content, flags=re.MULTILINE)
           # Only the first entry (the installer) is versioned; keep the SKIP entries for the raw GitHub sources.
           content = re.sub(r"^(sha512sums=\(')[^']*'", lambda m: f"{m.group(1)}{sha512}'", content, flags=re.MULTILINE)
