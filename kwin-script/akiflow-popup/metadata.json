@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [{ "Name": "shrimp" }],
+        "Description": "Opens Akiflow's tray popup next to the panel entry that was clicked",
+        "EnabledByDefault": false,
+        "Id": "akiflow-popup",
+        "License": "MIT",
+        "Name": "Akiflow popup placement",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}
