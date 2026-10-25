@@ -45,6 +45,86 @@ def _tray_writer_repl(m):
     )
 
 
+# Header tweaks for the frameless main window. The renderer is a remote web app,
+# so these are injected at runtime using stable element ids / the app's own classes:
+#  - sync (refresh) and command-bar buttons move to the far left (refresh first)
+#  - the app's rounded main panel is squared off, since the window itself is square
+#  - the right side hosts Akiflow-styled window controls (the app only renders its
+#    own controls on Windows), reusing the app's `.windowControls` classes so the
+#    colors, sizes and hover states come from its stylesheet and theme
+HEADER_CSS = (
+    ".main-header{padding-left:calc(var(--aki-wc-w,124px) + 4px)!important}"
+    "#syncIcon-container{position:absolute;left:6px;top:50%;transform:translateY(-50%);z-index:1}"
+    ".main-header div:has(>div>#main-header-learn-command-bar)"
+    "{position:absolute;left:42px;top:50%;transform:translateY(-50%);z-index:1}"
+    ".header-outer{padding-right:var(--aki-wc-w,124px)}"
+    "#main-app-container{border-radius:0!important}"
+)
+
+# window state values come from the app's own enum: 0 minimized, 1 normal, 2 maximized, 3 fullscreen
+CONTROLS_JS = r"""(()=>{
+const api=window.electronAPI;
+if(!api||document.getElementById("aki-window-controls"))return;
+const S=d=>'<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>';
+const ICON={minimize:S('<path d="M1 5h8"/>'),maximize:S('<rect x="1.5" y="1.5" width="7" height="7" rx="1.2"/>'),
+restore:S('<rect x="1.5" y="3" width="5.5" height="5.5" rx="1"/><path d="M3.5 3v-.6a.9.9 0 0 1 .9-.9h3.2a.9.9 0 0 1 .9.9v3.2a.9.9 0 0 1-.9.9H7"/>'),
+close:S('<path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/>')};
+const mk=(cls,title,fn)=>{const b=document.createElement("button");b.className="windowControls-button "+cls+" flex items-center justify-center w-9 h-full rounded-md";b.title=title;b.tabIndex=-1;b.innerHTML=ICON[cls];b.onclick=fn;return b};
+let state=1;
+const bMin=mk("minimize","Minimize",()=>api.mainWindowMinimize());
+const bMax=mk("maximize","Maximize",()=>(state===2||state===3)?api.mainWindowRestore():api.mainWindowMaximize());
+const bClose=mk("close","Close",()=>api.mainWindowClose());
+const setState=s=>{state=s;const m=s===2||s===3;bMax.innerHTML=m?ICON.restore:ICON.maximize;bMax.title=m?"Restore":"Maximize";bMax.classList.toggle("restore",m);bMax.classList.toggle("maximize",!m)};
+document.addEventListener("mouseover",e=>{const t=e.target.closest&&e.target.closest('.main-header [data-tooltip-position="left"]');if(t)t.setAttribute("data-tooltip-position","right")},true);
+const wrap=document.createElement("div");
+wrap.id="aki-window-controls";
+wrap.className="windowControls flex items-center gap-1 pl-2 pr-0.5 py-0.5 rounded-r-md select-none not-draggable";
+wrap.append(bMin,bMax,bClose);
+Object.assign(wrap.style,{position:"fixed",top:"0",right:"0",zIndex:"5002"});
+const place=()=>{const h=document.querySelector(".header-outer"),r=h?h.getBoundingClientRect():{top:2,height:32};
+wrap.style.top=r.top+"px";wrap.style.height=r.height+"px";
+document.documentElement.style.setProperty("--aki-wc-w",wrap.offsetWidth+"px")};
+document.body.appendChild(wrap);place();
+addEventListener("resize",place);new ResizeObserver(place).observe(document.body);
+try{api.mainWindowGetWindowState().then(setState)}catch(e){}
+try{api.ipcListener("mainWindow.stateChanged",(e,s)=>setState(s))}catch(e){}
+})()"""
+
+
+def _window_chrome_repl(m):
+    # Hide the menu bar (accelerators keep working) and, on every page load, inject
+    # the header CSS and the Akiflow-styled window controls.
+    return (
+        'process.platform==="linux"&&((w)=>{'
+        'w.setMenuBarVisibility(!1);'
+        # The app only emits mainWindow.stateChanged for maximize/restore on Windows;
+        # the injected controls need it to flip the maximize/restore icon.
+        'const _s=()=>{try{w.webContents.send("mainWindow.stateChanged",'
+        'w.isFullScreen()?3:w.isMaximized()?2:w.isMinimized()?0:1)}catch(_x){}};'
+        # Wayland can still report the old state when the event fires, so re-check shortly after.
+        '["maximize","unmaximize","minimize","restore","enter-full-screen","leave-full-screen"].forEach(_v=>w.on(_v,()=>{_s();setTimeout(_s,200)}));'
+        'w.webContents.on("dom-ready",()=>{'
+        f'w.webContents.insertCSS({json.dumps(HEADER_CSS)}).catch(()=>{{}});'
+        f'w.webContents.executeJavaScript({json.dumps(CONTROLS_JS)}).catch(()=>{{}})'
+        '})})(globalThis.mainWindow),'
+        + m.group(0)
+    )
+
+
+KWIN_ENABLE_CMD = (
+    '[ -d /usr/share/kwin/scripts/akiflow-popup ] && '
+    '[ "$(kreadconfig6 --file kwinrc --group Plugins --key akiflow-popupEnabled)" != true ] && '
+    '{ kwriteconfig6 --file kwinrc --group Plugins --key akiflow-popupEnabled true && '
+    'qdbus6 org.kde.KWin /KWin reconfigure; }'
+)
+
+
+def _kwin_enable_js():
+    # Turns on the packaged KWin script that places the tray popup next to the panel.
+    # Done here because a running plasmashell keeps the old widget code after an update.
+    return f'require("child_process").execFile("sh",["-c",{json.dumps(KWIN_ENABLE_CMD)}],()=>{{}});'
+
+
 MAIN_PATCHES = [
     {
         "name": "Tray status JSON writer",
@@ -62,7 +142,7 @@ MAIN_PATCHES = [
         "original": 'globalThis.tray.setToolTip("Akiflow")',
         "replacement": (
             'globalThis.tray.setToolTip("Akiflow"),'
-            "(()=>{if(process.platform===\"linux\"){const _fs=require(\"fs\"),_tp=require(\"path\").join(require(\"os\").homedir(),"
+            "(()=>{if(process.platform===\"linux\"){" + _kwin_enable_js() + "const _fs=require(\"fs\"),_tp=require(\"path\").join(require(\"os\").homedir(),"
             '".cache","akiflow","toggle-tray");'
             "try{_fs.mkdirSync(require(\"path\").dirname(_tp),{recursive:!0})}catch(_e){}"
             "_fs.watchFile(_tp,{interval:500},()=>{"
@@ -74,10 +154,36 @@ MAIN_PATCHES = [
             "_d=require(\"electron\").screen.getDisplayNearestPoint({x:_pos.x,y:_pos.y}),"
             "_nx=Math.max(_d.workArea.x,Math.min(_pos.x-Math.floor(_b.width/2),_d.workArea.x+_d.workArea.width-_b.width)),"
             "_ny=_pos.y-_b.height-8;"
-            "globalThis.trayWindow.setBounds({x:_nx,y:_ny<_d.workArea.y?_pos.y+8:_ny,width:_b.width,height:_b.height})}"
+            "globalThis.trayWindow.__akiBounds={x:_nx,y:_ny<_d.workArea.y?_pos.y+8:_ny,width:_b.width,height:_b.height}}"
             'globalThis.trayWindow._show("fromWidget")'
             "}catch(_e){}})}})()"
         ),
+        "required": False,
+    },
+    {
+        "name": "Tray popup honours widget position",
+        # _show() calls _repositionTray() right after the watcher positions the
+        # window, which used to overwrite it. Let the watcher's bounds win once.
+        "pattern": r'(globalThis\.trayWindow\._repositionTray=\(\)=>\{)',
+        "replacement": r'\1const _w=globalThis.trayWindow.__akiBounds;'
+                       r'if(_w){globalThis.trayWindow.__akiBounds=null;globalThis.trayWindow.setBounds(_w);return}',
+        "check_applied": "__akiBounds;if(",
+        "required": False,
+    },
+    {
+        "name": "Frameless main window",
+        # Was frame:IS_LINUX (server-side titlebar). The app's own header becomes the
+        # titlebar; window controls are injected by the "Hide menu bar" patch below.
+        "pattern": r'show:(\w+),frame:(\w+)\.IS_LINUX,backgroundColor:"#ffffff"',
+        "replacement": r'show:\1,frame:!1,roundedCorners:!1,backgroundColor:"#ffffff"',
+        "check_applied": 'frame:!1,roundedCorners:!1,backgroundColor:"#ffffff"',
+        "required": False,
+    },
+    {
+        "name": "Hide menu bar, inject header CSS and window controls",
+        "pattern": r'globalThis\.mainWindow\.loadURL\(',
+        "replacement": _window_chrome_repl,
+        "check_applied": 'aki-window-controls',
         "required": False,
     },
 ]
