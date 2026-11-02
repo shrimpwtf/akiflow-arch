@@ -91,6 +91,38 @@ try{api.ipcListener("mainWindow.stateChanged",(e,s)=>setState(s))}catch(e){}
 })()"""
 
 
+# The remote web app only calls tray.setTitle on macOS, so on Linux nothing feeds the
+# KDE widget. Mirror the planner's "Next / Now" live-activity card into the tray title
+# instead ("<event> · in 10m"; the widget treats a title containing "left" as ongoing).
+# The card only exists on the planner page, so other pages leave the last title alone.
+TRAY_BRIDGE_JS = r"""(()=>{
+const api=window.electronAPI;
+if(!api||!api.traySetTitle||window.__akiTrayBridge)return;
+window.__akiTrayBridge=1;
+let last=null;
+const tick=()=>{try{
+if(!document.getElementById("planner"))return;
+const c=document.querySelector("#live-activities .planner-ongoing-item");
+let t="";
+if(c){const ti=c.querySelector("span.truncate"),tm=c.querySelector(".shrink-0 span");
+const a=ti&&ti.textContent.trim(),b=tm&&tm.textContent.trim();
+if(a)t=b?a+" \u00b7 "+b:a}
+if(t!==last){last=t;api.traySetTitle(t)}
+}catch(e){}};
+setInterval(tick,5000);setTimeout(tick,1500);
+})()"""
+
+
+def _tray_bridge_repl(m):
+    return (
+        'process.platform==="linux"&&((w)=>{'
+        'w.webContents.on("dom-ready",()=>{'
+        f'w.webContents.executeJavaScript({json.dumps(TRAY_BRIDGE_JS)}).catch(()=>{{}})'
+        '})})(globalThis.mainWindow),'
+        + m.group(0)
+    )
+
+
 def _window_chrome_repl(m):
     # Hide the menu bar (accelerators keep working) and, on every page load, inject
     # the header CSS and the Akiflow-styled window controls.
@@ -184,6 +216,13 @@ MAIN_PATCHES = [
         "pattern": r'globalThis\.mainWindow\.loadURL\(',
         "replacement": _window_chrome_repl,
         "check_applied": 'aki-window-controls',
+        "required": False,
+    },
+    {
+        "name": "Feed tray title from the planner's next-event card",
+        "pattern": r'globalThis\.mainWindow\.loadURL\(',
+        "replacement": _tray_bridge_repl,
+        "check_applied": '__akiTrayBridge',
         "required": False,
     },
 ]
